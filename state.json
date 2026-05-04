@@ -1,0 +1,39 @@
+{
+  "current_list": "nrl",
+  "lists": {
+    "nrl": {
+      "active": [
+        "Bulldogs",
+        "Cowboys",
+        "Dolphins",
+        "Dragons",
+        "Eels",
+        "Knights",
+        "Panthers",
+        "Rabbitohs",
+        "Roosters",
+        "Sea Eagles",
+        "Storm",
+        "Titans",
+        "Warriors",
+        "West Tigers"
+      ],
+      "removed": [
+        "Broncos",
+        "Raiders",
+        "Sharks"
+      ],
+      "last_removed": "Sharks",
+      "history": [
+        "Cowboys",
+        "Raiders",
+        "Sharks"
+      ],
+      "processed_spins": [
+        "spin-1777865154316-513155",
+        "spin-1777865219050-372514",
+        "spin-1777865237677-240801"
+      ]
+    }
+  }
+}

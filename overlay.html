@@ -1,0 +1,332 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Breakstart Wheel</title>
+
+<style>
+html, body {
+  margin:0;
+  width:100%;
+  height:100%;
+  overflow:hidden;
+  background:transparent;
+  font-family:Arial, Helvetica, sans-serif;
+}
+
+.wrap {
+  width:100%;
+  height:100%;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:12px;
+}
+
+.wheel-wrap {
+  position:relative;
+  width:340px;
+  height:340px;
+}
+
+.pointer {
+  position:absolute;
+  top:-4px;
+  left:50%;
+  transform:translateX(-50%);
+  border-left:12px solid transparent;
+  border-right:12px solid transparent;
+  border-top:24px solid #ff2d55;
+  z-index:10;
+}
+
+svg {
+  width:100%;
+  height:100%;
+}
+
+.winner {
+  min-width:320px;
+  background:rgba(0,0,0,.9);
+  padding:10px 16px;
+  border-radius:10px;
+  color:white;
+  font-weight:bold;
+  text-align:center;
+  border:1px solid rgba(29,140,255,.45);
+}
+
+.winner strong {
+  color:#ff2d55;
+}
+</style>
+</head>
+
+<body>
+<div class="wrap">
+  <div class="wheel-wrap">
+    <div class="pointer"></div>
+    <svg viewBox="0 0 4000 4000">
+      <g id="wheel"></g>
+    </svg>
+  </div>
+
+  <div class="winner" id="winnerBox">
+    Winner: <strong>—</strong>
+  </div>
+</div>
+
+<script>
+var API = "http://127.0.0.1:8765";
+
+var wheel = document.getElementById("wheel");
+var winnerBox = document.getElementById("winnerBox");
+
+var teams = [];
+var rotation = 0;
+
+var spinning = false;
+var winnerSaved = false;
+var currentSpinId = null;
+var visibilityTimer = null;
+
+var CX = 2000;
+var CY = 2000;
+var RADIUS = 1800;
+var CENTER = 500;
+
+function newSpinId() {
+  return "spin-" + Date.now() + "-" + Math.floor(Math.random() * 1000000);
+}
+
+function getCurrentWheelState(data) {
+  var currentList = data.current_list;
+
+  if (!currentList || !data.lists || !data.lists[currentList]) {
+    return {
+      active: [],
+      removed: [],
+      history: []
+    };
+  }
+
+  return data.lists[currentList];
+}
+
+function loadTeams(callback) {
+  fetch(API + "/state")
+    .then(function(res) {
+      return res.json();
+    })
+    .then(function(data) {
+      var wheelState = getCurrentWheelState(data);
+      teams = wheelState.active || [];
+      drawWheel();
+
+      if (callback) callback();
+    })
+    .catch(function() {
+      winnerBox.innerHTML = "Winner: <strong>Server error</strong>";
+    });
+}
+
+function saveWinnerOnce(winner, spinId, callback) {
+  if (winnerSaved) return;
+
+  winnerSaved = true;
+
+  fetch(API + "/record/" + encodeURIComponent(winner) + "?spin_id=" + encodeURIComponent(spinId))
+    .then(function(res) {
+      return res.json();
+    })
+    .then(function() {
+      winnerBox.innerHTML = "Saved: <strong>" + winner + "</strong>";
+      if (callback) callback();
+    })
+    .catch(function() {
+      winnerBox.innerHTML = "ERROR saving: <strong>" + winner + "</strong>";
+      if (callback) callback();
+    });
+}
+
+function escapeXml(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function drawWheel() {
+  if (!teams.length) {
+    wheel.innerHTML =
+      '<circle cx="' + CX + '" cy="' + CY + '" r="' + RADIUS + '" fill="#081018" stroke="#1d8cff" stroke-width="30"/>' +
+      '<text x="' + CX + '" y="' + CY + '" text-anchor="middle" dominant-baseline="middle" fill="white" font-size="120" font-weight="700">NO TEAMS</text>';
+
+    setRotation(rotation);
+    return;
+  }
+
+  var angle = (Math.PI * 2) / teams.length;
+  var html = "";
+
+  for (var i = 0; i < teams.length; i++) {
+    var start = i * angle - Math.PI / 2;
+    var end = start + angle;
+    var mid = start + angle / 2;
+
+    var x1 = CX + Math.cos(start) * RADIUS;
+    var y1 = CY + Math.sin(start) * RADIUS;
+    var x2 = CX + Math.cos(end) * RADIUS;
+    var y2 = CY + Math.sin(end) * RADIUS;
+
+    var large = end - start > Math.PI ? 1 : 0;
+
+    var path =
+      "M " + CX + " " + CY +
+      " L " + x1 + " " + y1 +
+      " A " + RADIUS + " " + RADIUS + " 0 " + large + " 1 " + x2 + " " + y2 +
+      " Z";
+
+    var tx = CX + Math.cos(mid) * (RADIUS - 220);
+    var ty = CY + Math.sin(mid) * (RADIUS - 220);
+    var rot = mid * 180 / Math.PI;
+
+    var color = i % 2 === 0 ? "#1d8cff" : "#ff2d55";
+
+    html +=
+      '<path d="' + path + '" fill="' + color + '" stroke="white" stroke-width="6"/>' +
+      '<g transform="translate(' + tx + ',' + ty + ') rotate(' + rot + ')">' +
+      '<text text-anchor="end" dominant-baseline="middle" fill="white" font-size="90" font-weight="700">' +
+      escapeXml(teams[i].toUpperCase()) +
+      '</text>' +
+      '</g>';
+  }
+
+  html +=
+    '<circle cx="' + CX + '" cy="' + CY + '" r="' + CENTER + '" fill="#081018" stroke="white" stroke-width="20"/>' +
+    '<image href="' + API + '/breakstart-logo.png" x="' + (CX - 420) + '" y="' + (CY - 420) + '" width="840" height="840"/>';
+
+  wheel.innerHTML = html;
+  setRotation(rotation);
+}
+
+function setRotation(rad) {
+  var deg = rad * 180 / Math.PI;
+  wheel.setAttribute("transform", "rotate(" + deg + " 2000 2000)");
+}
+
+function getWinner() {
+  if (!teams.length) return "";
+
+  var angle = (Math.PI * 2) / teams.length;
+  var normalized = (((-rotation) % (Math.PI * 2)) + (Math.PI * 2)) % (Math.PI * 2);
+  var index = Math.floor(normalized / angle);
+
+  if (index < 0) index = 0;
+  if (index >= teams.length) index = teams.length - 1;
+
+  return teams[index];
+}
+
+function spin() {
+  if (spinning) return;
+
+  spinning = true;
+  winnerSaved = false;
+  currentSpinId = newSpinId();
+
+  loadTeams(function() {
+    if (!teams.length) {
+      winnerBox.innerHTML = "Winner: <strong>No teams</strong>";
+      spinning = false;
+      return;
+    }
+
+    winnerBox.innerHTML = "Winner: <strong>Spinning...</strong>";
+
+    var start = rotation;
+    var target =
+      rotation +
+      (7 + Math.random() * 3) * (Math.PI * 2) +
+      Math.random() * Math.PI * 2;
+
+    var duration = 5000;
+    var startTime = null;
+
+    function animate(timestamp) {
+      if (!startTime) startTime = timestamp;
+
+      var progress = (timestamp - startTime) / duration;
+      if (progress > 1) progress = 1;
+
+      var eased = 1 - Math.pow(1 - progress, 3);
+
+      rotation = start + (target - start) * eased;
+      setRotation(rotation);
+
+      if (progress < 1) {
+        requestAnimationFrame(animate);
+      } else {
+        rotation = target % (Math.PI * 2);
+        setRotation(rotation);
+
+        var winner = getWinner();
+
+        winnerBox.innerHTML = "Winner: <strong>" + winner + "</strong>";
+
+        saveWinnerOnce(winner, currentSpinId, function() {
+          loadTeams(function() {
+            spinning = false;
+          });
+        });
+      }
+    }
+
+    requestAnimationFrame(animate);
+  });
+}
+
+function resetOverlay() {
+  if (visibilityTimer) {
+    clearTimeout(visibilityTimer);
+    visibilityTimer = null;
+  }
+
+  winnerBox.innerHTML = "Winner: <strong>—</strong>";
+
+  if (!spinning) {
+    loadTeams();
+  }
+}
+
+/* OBS: spin once when source appears */
+if (window.obsstudio) {
+  window.obsstudio.onVisibilityChange = function(visible) {
+    if (visible) {
+      if (visibilityTimer) clearTimeout(visibilityTimer);
+
+      visibilityTimer = setTimeout(function() {
+        if (!spinning) {
+          spin();
+        }
+      }, 700);
+    } else {
+      resetOverlay();
+    }
+  };
+}
+
+/* Chrome test: press Space */
+window.addEventListener("keydown", function(e) {
+  if (e.code === "Space") {
+    spin();
+  }
+});
+
+loadTeams();
+</script>
+</body>
+</html>

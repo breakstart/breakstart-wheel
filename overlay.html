@@ -78,14 +78,19 @@ svg {
 </div>
 
 <script>
-var API = "http://127.0.0.1:8765";
+/*
+IMPORTANT:
+API is blank so this works on BOTH:
+- local: http://127.0.0.1:8765/
+- Render: https://your-app.onrender.com/
+*/
+var API = "";
 
 var wheel = document.getElementById("wheel");
 var winnerBox = document.getElementById("winnerBox");
 
 var teams = [];
 var rotation = 0;
-
 var spinning = false;
 var winnerSaved = false;
 var currentSpinId = null;
@@ -115,7 +120,7 @@ function getCurrentWheelState(data) {
 }
 
 function loadTeams(callback) {
-  fetch(API + "/state")
+  fetch(API + "/state", { cache: "no-store" })
     .then(function(res) {
       return res.json();
     })
@@ -136,7 +141,9 @@ function saveWinnerOnce(winner, spinId, callback) {
 
   winnerSaved = true;
 
-  fetch(API + "/record/" + encodeURIComponent(winner) + "?spin_id=" + encodeURIComponent(spinId))
+  fetch(API + "/record/" + encodeURIComponent(winner) + "?spin_id=" + encodeURIComponent(spinId), {
+    cache: "no-store"
+  })
     .then(function(res) {
       return res.json();
     })
@@ -207,7 +214,7 @@ function drawWheel() {
 
   html +=
     '<circle cx="' + CX + '" cy="' + CY + '" r="' + CENTER + '" fill="#081018" stroke="white" stroke-width="20"/>' +
-    '<image href="' + API + '/breakstart-logo.png" x="' + (CX - 420) + '" y="' + (CY - 420) + '" width="840" height="840"/>';
+    '<image href="/breakstart-logo.png" x="' + (CX - 420) + '" y="' + (CY - 420) + '" width="840" height="840"/>';
 
   wheel.innerHTML = html;
   setRotation(rotation);

@@ -4,7 +4,7 @@ import re
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import unquote, urlparse, parse_qs
 
-PORT = 8765
+PORT = int(os.environ.get("PORT", 8765))
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 OVERLAY_FILE = os.path.join(BASE_DIR, "overlay.html")
@@ -43,6 +43,9 @@ def ensure_files():
     if not os.path.exists(nrl_file):
         with open(nrl_file, "w", encoding="utf-8") as f:
             f.write("\n".join(DEFAULT_NAMES))
+
+    if not os.path.exists(STATE_FILE):
+        save_state(default_state())
 
 
 def safe_list_id(list_id):
@@ -108,8 +111,6 @@ def default_state():
 
 
 def load_state():
-    ensure_files()
-
     if not os.path.exists(STATE_FILE):
         state = default_state()
         save_state(state)
@@ -156,14 +157,14 @@ def sort_active(wheel):
     wheel["active"] = sorted(wheel["active"], key=lambda x: x.lower())
 
 
-def record_winner(team, spin_id):
+def record_winner(name, spin_id):
     state = load_state()
     wheel = current_wheel(state)
 
-    team = team.strip()
+    name = name.strip()
     spin_id = spin_id.strip()
 
-    if not team or not spin_id:
+    if not name or not spin_id:
         return state
 
     if spin_id in wheel["processed_spins"]:
@@ -174,51 +175,51 @@ def record_winner(team, spin_id):
     if len(wheel["processed_spins"]) > 500:
         wheel["processed_spins"] = wheel["processed_spins"][-500:]
 
-    wheel["history"].append(team)
+    wheel["history"].append(name)
 
-    if team in wheel["active"]:
-        wheel["active"].remove(team)
+    if name in wheel["active"]:
+        wheel["active"].remove(name)
 
-    if team not in wheel["removed"]:
-        wheel["removed"].append(team)
+    if name not in wheel["removed"]:
+        wheel["removed"].append(name)
 
-    wheel["last_removed"] = team
+    wheel["last_removed"] = name
     sort_active(wheel)
 
     save_state(state)
     return state
 
 
-def manual_remove(team):
+def manual_remove(name):
     state = load_state()
     wheel = current_wheel(state)
 
-    team = team.strip()
+    name = name.strip()
 
-    if team in wheel["active"]:
-        wheel["active"].remove(team)
+    if name in wheel["active"]:
+        wheel["active"].remove(name)
 
-    if team and team not in wheel["removed"]:
-        wheel["removed"].append(team)
+    if name and name not in wheel["removed"]:
+        wheel["removed"].append(name)
 
-    wheel["last_removed"] = team
+    wheel["last_removed"] = name
     sort_active(wheel)
 
     save_state(state)
     return state
 
 
-def restore_team(team):
+def restore_team(name):
     state = load_state()
     wheel = current_wheel(state)
 
-    team = team.strip()
+    name = name.strip()
 
-    if team in wheel["removed"]:
-        wheel["removed"].remove(team)
+    if name in wheel["removed"]:
+        wheel["removed"].remove(name)
 
-    if team and team not in wheel["active"]:
-        wheel["active"].append(team)
+    if name and name not in wheel["active"]:
+        wheel["active"].append(name)
 
     sort_active(wheel)
 
@@ -230,14 +231,14 @@ def restore_last():
     state = load_state()
     wheel = current_wheel(state)
 
-    team = wheel.get("last_removed")
+    name = wheel.get("last_removed")
 
-    if team:
-        if team in wheel["removed"]:
-            wheel["removed"].remove(team)
+    if name:
+        if name in wheel["removed"]:
+            wheel["removed"].remove(name)
 
-        if team not in wheel["active"]:
-            wheel["active"].append(team)
+        if name not in wheel["active"]:
+            wheel["active"].append(name)
 
         wheel["last_removed"] = None
         sort_active(wheel)
@@ -303,6 +304,10 @@ def reload_list_from_file(list_id):
     state = load_state()
     list_id = safe_list_id(list_id)
 
+    if not os.path.exists(list_path(list_id)):
+        with open(list_path(list_id), "w", encoding="utf-8") as f:
+            f.write("")
+
     state["current_list"] = list_id
     state["lists"][list_id] = blank_list_state(list_id)
 
@@ -311,7 +316,7 @@ def reload_list_from_file(list_id):
 
 
 def available_lists():
-    ensure_files()
+    os.makedirs(LISTS_DIR, exist_ok=True)
 
     files = []
 
@@ -434,6 +439,7 @@ def render_lists_page():
 
     for list_id in lists:
         active = "CURRENT" if list_id == current else ""
+
         items += f"""
         <div class="row">
             <strong>{list_id}</strong>
@@ -505,7 +511,6 @@ def render_control_page():
     removed_buttons = ""
 
     for name in wheel["active"]:
-        safe = name.replace("'", "\\'")
         active_buttons += f"""
         <button class="remove" onclick="fetch('/remove/{name}').then(()=>location.reload())">{name}</button>
         """
@@ -589,6 +594,50 @@ button, a {{
 """
 
 
+def render_keepalive_page():
+    return """
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Breakstart Keep Alive</title>
+<style>
+body {
+    background: #081018;
+    color: white;
+    font-family: Arial, Helvetica, sans-serif;
+    padding: 30px;
+}
+h1 { color: #1d8cff; }
+#status { color: #ff2d55; font-weight: bold; }
+</style>
+</head>
+<body>
+<h1>Breakstart Keep Alive</h1>
+<p>Leave this tab open during stream.</p>
+<p>Status: <span id="status">Running</span></p>
+<p>Last ping: <span id="last">Never</span></p>
+
+<script>
+function ping() {
+    fetch('/state')
+        .then(function() {
+            document.getElementById('last').textContent = new Date().toLocaleTimeString();
+            document.getElementById('status').textContent = 'Running';
+        })
+        .catch(function() {
+            document.getElementById('status').textContent = 'Error';
+        });
+}
+
+ping();
+setInterval(ping, 5 * 60 * 1000);
+</script>
+</body>
+</html>
+"""
+
+
 class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, format, *args):
@@ -649,6 +698,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_html(render_control_page())
                 return
 
+            if path == "/keepalive":
+                self.send_html(render_keepalive_page())
+                return
+
             if path.startswith("/load-list/"):
                 list_id = unquote(path.replace("/load-list/", ""))
                 self.send_json(switch_list(list_id))
@@ -699,10 +752,10 @@ class Handler(BaseHTTPRequestHandler):
 
 ensure_files()
 
-print("Breakstart server running on http://127.0.0.1:8765")
-print("Wheel:   http://127.0.0.1:8765/")
-print("Control: http://127.0.0.1:8765/control")
-print("History: http://127.0.0.1:8765/history")
-print("Lists:   http://127.0.0.1:8765/lists")
+print(f"Breakstart server running on port {PORT}")
+print("Local Wheel:   http://127.0.0.1:8765/")
+print("Local Control: http://127.0.0.1:8765/control")
+print("Local History: http://127.0.0.1:8765/history")
+print("Local Lists:   http://127.0.0.1:8765/lists")
 
-HTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+HTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
